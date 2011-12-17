@@ -1,17 +1,30 @@
+from __future__ import absolute_import
+
 from furl.furl import furl
 
+import geohash
 import urllib
-import cjson
-
-def get_geocode(location):
-    '''Helper function for Geocode classes'''
-    coded = Yahoo(location)
-    if coded.error != -1:
-        return None
-    else:
-        return coded
+import json
+try:
+    import memcache
+    HAS_MEMCACHE = True
+except:
+    HAS_MEMCACHE = False
     
-
+class Geokit(object):
+    def __init__(self, app=None):
+        if app is not None:
+            self.init_app(app)
+    
+    def init_app(self, app):
+        self.app = app
+        self._yahoo_id = app.config.get('GEOKIT_YAHOO_ID')
+        self._service  = app.config.get('GEOKIT_SERVICE', 'yahoo').lower()
+        
+    def geocode(self, location):
+        if self._service == 'yahoo':
+            return Yahoo(location, self._yahoo_id)
+        
 class Base(object):
     '''Geocoding abstraction
     
@@ -30,15 +43,21 @@ class Base(object):
     ... WA
     '''
     
-    def __init__(self, search_location):
+    def __init__(self, search_location, api_key):
         self.city = None
         self.state = None
         self.country = None
         self.error = -1
         self.error_msg = ''
         self.search_location = search_location
+        self.api_key = api_key
+        
+        if HAS_MEMCACHE:
+            self.mc = memcache.Client(['127.0.0.1:11211'], debug=0)
+            
         self.build_url()
         self.parse()
+        
         
     @property
     def formatted_location(self):
@@ -84,7 +103,7 @@ class Google(Base):
         api_url.args['address'] = self.search_location
         api_url.args['sensor'] = False
         request = self.fetch(api_url.url)
-        request = cjson.load(request)
+        request = json.load(request)
         self._request = request
 
 
@@ -112,11 +131,20 @@ class Yahoo(Base):
         self.geohash = geohash.encode(self.latitude, self.longitude, precision=6)
         
     def build_url(self):
+        if HAS_MEMCACHE:
+            value = self.mc.get("YH_" + self.search_location)
+            if value:
+                return value
+                
         f = furl('http://where.yahooapis.com/geocode?flags=JST&gflags=A')
         f.args['location'] = self.search_location
-        f.args['appid'] = YAHOO_ID
+        f.args['appid'] = self.api_key
         request = self.fetch(f.url)
-        request = cjson.load(request)
+        request = json.load(request)
         self._request = request
+        if HAS_MEMCACHE:
+            self.mc.set("YH_" + self.search_location, request)
+
+
 
 
