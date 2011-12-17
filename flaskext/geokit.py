@@ -1,10 +1,12 @@
 from __future__ import absolute_import
 
 from furl.furl import furl
+from memorised.decorators import memorise
 
 import geohash
 import urllib
 import json
+
 try:
     import memcache
     HAS_MEMCACHE = True
@@ -21,6 +23,7 @@ class Geokit(object):
         self._yahoo_id = app.config.get('GEOKIT_YAHOO_ID')
         self._service  = app.config.get('GEOKIT_SERVICE', 'yahoo').lower()
         
+    @memorise()
     def geocode(self, location):
         if self._service == 'yahoo':
             return Yahoo(location, self._yahoo_id)
@@ -131,20 +134,12 @@ class Yahoo(Base):
         self.geohash = geohash.encode(self.latitude, self.longitude, precision=6)
         
     def build_url(self):
-        if HAS_MEMCACHE:
-            value = self.mc.get("YH_" + self.search_location)
-            if value:
-                return value
-                
         f = furl('http://where.yahooapis.com/geocode?flags=JST&gflags=A')
         f.args['location'] = self.search_location
         f.args['appid'] = self.api_key
         request = self.fetch(f.url)
         request = json.load(request)
         self._request = request
-        if HAS_MEMCACHE:
-            self.mc.set("YH_" + self.search_location, request)
-
-
+        
 
 
